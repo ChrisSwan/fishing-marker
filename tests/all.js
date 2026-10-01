@@ -5,3 +5,4 @@ import './swim.test.js';
 import './overlay.test.js';
 import './camera.test.js';
 import './transfer.test.js';
+import './gyro.test.js';

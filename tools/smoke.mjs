@@ -110,6 +110,7 @@ try {
     await evaluate(`document.getElementById('out').textContent.slice(-200)`).catch(() => ''));
 
   // --- first run: setup
+  await send('DeviceOrientation.setDeviceOrientationOverride', { alpha: 0, beta: 90, gamma: 0 });
   await send('Page.navigate', { url });
   check('camera starts (fake device)', await waitFor(`document.getElementById('video').videoWidth > 0`));
   check('badge says freeze to align', (await evaluate(`document.getElementById('badge').textContent`)) === 'LIVE — freeze to align');
@@ -163,6 +164,24 @@ try {
   await click('btn-freeze');
   check('second freeze in session starts locked', (await visible('btn-lock')) && !(await visible('btn-confirm')));
   await click('btn-freeze');
+
+  // gyro: live overlay follows orientation (camera turned 5° left -> overlay shifts right)
+  check('live badge shows gyro tracking', await waitFor(`document.getElementById('badge').textContent === 'LIVE ≈'`, 3000),
+    await evaluate(`document.getElementById('badge').textContent`));
+  const pixel = (x, y) => evaluate(`(() => { const c = document.getElementById('overlay'); const d = window.devicePixelRatio || 1;
+    return Array.from(c.getContext('2d').getImageData(Math.round(${x} * d), Math.round(${y} * d), 1, 1).data); })()`);
+  const isBlue = (p) => Math.abs(p[0] - 47) < 30 && Math.abs(p[1] - 123) < 30 && p[2] > 220 && p[3] > 200;
+  const bx = rect.w / 2, by = rect.h * 0.6;
+  await sleep(300);
+  const atRest = await pixel(bx, by);
+  await send('DeviceOrientation.setDeviceOrientationOverride', { alpha: 5, beta: 90, gamma: 0 });
+  await sleep(400);
+  const shift = (5 * rect.h) / 65;
+  const movedFrom = await pixel(bx, by);
+  const movedTo = await pixel(bx + shift, by);
+  check('gyro shifts the overlay the right way', isBlue(atRest) && !isBlue(movedFrom) && isBlue(movedTo),
+    JSON.stringify({ atRest, movedFrom, movedTo }));
+  await send('DeviceOrientation.setDeviceOrientationOverride', { alpha: 0, beta: 90, gamma: 0 });
 
   // reload -> ghost re-alignment
   await send('Page.navigate', { url });

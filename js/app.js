@@ -6,6 +6,7 @@ import {
   confirmLines, placeMarker, deleteMarker, addMeasurement, clearMeasurements, markerPositions, updateSettings,
 } from './swim.js';
 import { exportText, pickTextFile, parseImport, serializeSwim, exportFilename } from './transfer.js';
+import { startGyro, poseDelta, overlayTransform } from './gyro.js';
 import { drawScene, hitTest, dragLines } from './overlay.js';
 import { attachInput } from './input.js';
 import { startCamera, cameraErrorMessage, captureFrame, frameToJpeg, loadImage } from './camera.js';
@@ -83,9 +84,9 @@ function activeLines() {
   return state.lines ?? state.swim.currentLines ?? state.swim.reference?.lines ?? null;
 }
 
-// Replaced in Task 8 (gyro). Returns {dx, dy, rollDeg} or null.
 function liveOverlay() {
-  return null;
+  if (!state.poseBase || !state.pose) return null;
+  return overlayTransform(poseDelta(state.poseBase, state.pose), state.viewH, state.swim.settings.fovDegrees);
 }
 
 function render() {
@@ -392,6 +393,10 @@ $('menu').onclick = async (e) => {
 async function init() {
   window.addEventListener('resize', resize);
   resize();
+  startGyro((pose) => {
+    state.gyroSeen = true;
+    state.pose = pose;
+  });
   if (state.swim.reference) state.ghostImage = await loadImage(state.swim.reference.image).catch(() => null);
   if (store.blocked) {
     const dlg = $('load-error');

@@ -31,3 +31,7 @@ test('manifest is portrait, fullscreen, with existing 192 and 512 icons', () => 
     assertTrue(icon && existsSync(new URL(icon.src, root)), `icon ${size} missing`);
   }
 });
+
+test('service worker bypasses the HTTP cache when installing', () => {
+  assertTrue(/cache:\s*'reload'/.test(read('sw.js')), "sw.js should fetch ASSETS with { cache: 'reload' }");
+});

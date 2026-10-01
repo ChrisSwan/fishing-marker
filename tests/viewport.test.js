@@ -1,5 +1,5 @@
 import { test, assertClose, assertEqual } from './runner.js';
-import { coverTransform, screenToImage, imageToScreen } from '../js/viewport.js';
+import { coverTransform, screenToImage, imageToScreen, visibleBounds } from '../js/viewport.js';
 
 test('coverTransform crops the wider dimension', () => {
   const t = coverTransform(3000, 4000, 1000, 2000);
@@ -22,4 +22,11 @@ test('screen -> image -> screen round trip', () => {
     const back = imageToScreen(t, img.x, img.y);
     assertClose(back.x, sx, 1e-9); assertClose(back.y, sy, 1e-9);
   }
+});
+
+test('visibleBounds gives the on-screen part of the image, clipped to 0..1', () => {
+  const t = coverTransform(3000, 4000, 1000, 2000); // 250px cropped each side of a 1500px-wide display
+  const b = visibleBounds(t, 1000, 2000);
+  assertClose(b.x0, 250 / 1500); assertClose(b.x1, 1250 / 1500);
+  assertClose(b.y0, 0); assertClose(b.y1, 1);
 });

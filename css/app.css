@@ -7,6 +7,7 @@ body { display: flex; flex-direction: column; }
 #overlay { touch-action: none; }
 #status { position: absolute; left: 8px; right: 8px; top: calc(8px + env(safe-area-inset-top)); padding: 6px 10px; border-radius: 8px; background: rgba(0,0,0,.65); font-size: 14px; }
 #status:empty { display: none; }
+#warn { position: absolute; left: 8px; right: 8px; top: calc(48px + env(safe-area-inset-top)); padding: 6px 10px; border-radius: 8px; background: #b00020; color: #fff; font-weight: 600; font-size: 14px; }
 #badge { position: absolute; right: 8px; bottom: 8px; padding: 4px 8px; border-radius: 6px; background: rgba(0,0,0,.65); font-weight: 600; font-size: 13px; }
 #banner { position: absolute; left: 8px; right: 8px; bottom: 44px; padding: 12px; border-radius: 8px; background: #2ECC71; color: #000; font-weight: 600; text-align: center; }
 #toolbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; padding-bottom: max(8px, env(safe-area-inset-bottom)); background: #111; align-items: center; justify-content: center; }

@@ -1,6 +1,6 @@
 // App state and DOM wiring. All maths lives in the pure modules.
 import { VERSION } from './version.js';
-import { coverTransform, screenToImage } from './viewport.js';
+import { coverTransform, screenToImage, visibleBounds } from './viewport.js';
 import { openSwimStore, defaultLines, createSwim, requestPersistence } from './storage.js';
 import {
   confirmLines, placeMarker, deleteMarker, addMeasurement, clearMeasurements, markerPositions, updateSettings,
@@ -43,7 +43,10 @@ const state = {
   crosshair: null,
   pose: null,
   freezePose: null,
+  alignedPose: null,        // pose of the frame the current lines were last confirmed on
   poseBase: null,
+  linesAtFreeze: null,
+  cameraError: null,
   gyroSeen: false,
   viewW: 0,
   viewH: 0,
@@ -56,10 +59,16 @@ function say(text, ms = 4000) {
   if (ms) statusTimer = setTimeout(() => { $('status').textContent = ''; }, ms);
 }
 
+// Sticky warning, separate from status messages, so a save failure can't be hidden by the next message.
+function setWarn(text) {
+  $('warn').textContent = text;
+  $('warn').hidden = !text;
+}
+
 function commit(nextSwim) {
   state.swim = nextSwim;
   const res = store.save(nextSwim);
-  if (!res.ok) say(res.error, 0);
+  setWarn(res.ok ? '' : res.error);
 }
 
 function resize() {
@@ -139,7 +148,11 @@ function updateToolbar() {
 }
 
 function freeze() {
-  if (!video.videoWidth) { say('Camera not ready yet.'); return; }
+  if (!video.videoWidth) {
+    if (state.cameraError) say(state.cameraError, 0);
+    else say('Camera not ready yet.');
+    return;
+  }
   state.frame = captureFrame(video);
   state.freezePose = state.pose;
   state.frozen = true;
@@ -147,32 +160,38 @@ function freeze() {
   state.selected = null;
   const ref = state.swim.reference;
   if (!ref || state.newReference) {
-    state.lines = structuredClone(state.swim.currentLines ?? defaultLines());
+    state.lines = structuredClone(state.swim.currentLines ?? defaultLines(visibleBounds(transform(), state.viewW, state.viewH)));
     state.linesConfirmed = false;
     state.showGhost = false;
     say(ref ? 'New reference: align the lines, then Confirm.' : 'Drag the lines onto the waterlines and two far-bank trees, then Confirm.', 0);
   } else if (state.sessionConfirmed) {
+    // The phone has probably moved since the lines were confirmed: show them for a quick look,
+    // but require Confirm before any marker is edited against them.
     state.lines = structuredClone(state.swim.currentLines);
-    state.linesConfirmed = true;
+    state.linesConfirmed = false;
     state.showGhost = false;
+    say('Check the lines still sit on the banks — Confirm to edit markers.', 6000);
   } else {
     state.lines = structuredClone(ref.lines);
     state.linesConfirmed = false;
     state.showGhost = true;
     say('Match the lines to the ghost, then Confirm.', 0);
   }
+  state.linesAtFreeze = structuredClone(state.lines);
   render();
 }
 
 function unfreeze() {
-  if (state.frozen && !state.linesConfirmed) say('Lines not confirmed — alignment discarded.');
+  if (state.frozen && !state.linesConfirmed && JSON.stringify(state.lines) !== JSON.stringify(state.linesAtFreeze)) {
+    say('Lines not confirmed — alignment discarded.');
+  }
   state.frozen = false;
   state.frame = null;
   state.lines = null;
   state.drag = null;
   state.crosshair = null;
   state.selected = null;
-  state.poseBase = state.sessionConfirmed ? state.freezePose : null;
+  state.poseBase = state.sessionConfirmed ? state.alignedPose : null;
   loop();
 }
 
@@ -185,6 +204,7 @@ async function confirmAlignment() {
   if (needRef) state.ghostImage = await loadImage(image);
   state.linesConfirmed = true;
   state.sessionConfirmed = true;
+  state.alignedPose = state.freezePose;
   state.newReference = false;
   state.showGhost = false;
   say('Lines confirmed. Tap the water to place the selected colour.');
@@ -231,7 +251,7 @@ attachInput(canvas, {
     if (!state.drag || !t) return;
     const d = { dx: dx / t.dispW, dy: dy / t.dispH };
     if (state.drag.type === 'marker') state.drag.pos = { x: state.drag.pos.x + d.dx, y: state.drag.pos.y + d.dy };
-    else state.lines = dragLines(state.lines, state.drag.hit, d);
+    else state.lines = dragLines(state.lines, state.drag.hit, d, visibleBounds(t, state.viewW, state.viewH));
     render();
   },
   onDragEnd() {
@@ -401,7 +421,13 @@ async function registerServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
   if (['localhost', '127.0.0.1'].includes(location.hostname)) return; // keep dev reloads fresh
   const reg = await navigator.serviceWorker.register('./sw.js');
-  const offer = (worker) => showBanner('Update available — tap to reload', () => worker.postMessage('skipWaiting'));
+  // Reload only when the user asked for the update: on first install clients.claim() also fires
+  // controllerchange, and reloading then would interrupt the camera prompt or setup.
+  let userAskedReload = false;
+  const offer = (worker) => showBanner('Update available — tap to reload', () => {
+    userAskedReload = true;
+    worker.postMessage('skipWaiting');
+  });
   if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
   reg.addEventListener('updatefound', () => {
     const worker = reg.installing;
@@ -411,7 +437,7 @@ async function registerServiceWorker() {
   });
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => {
-    if (!reloading) { reloading = true; location.reload(); }
+    if (userAskedReload && !reloading) { reloading = true; location.reload(); }
   });
 }
 
@@ -438,13 +464,14 @@ async function init() {
     };
     dlg.showModal();
   } else if (store.status === 'error') {
-    say(store.error, 0);
+    setWarn(store.error);
   }
   video.addEventListener('loadedmetadata', render);
   try {
     await startCamera(video);
   } catch (err) {
-    say(cameraErrorMessage(err), 0);
+    state.cameraError = cameraErrorMessage(err);
+    say(state.cameraError, 0);
   }
   loop();
   registerServiceWorker().catch(() => {});

@@ -3,12 +3,14 @@ export const STORAGE_KEY = 'fishingMarker.swim.v1';
 export const SCHEMA_VERSION = 1;
 export const COLOURS = ['blue', 'green', 'red'];
 
-export function defaultLines() {
+// x0..x1 is the visible part of the frame, so handles and anchors start on screen.
+export function defaultLines({ x0 = 0, x1 = 1 } = {}) {
+  const at = (f) => x0 + f * (x1 - x0);
   return {
-    far: { p1: { x: 0.1, y: 0.45 }, p2: { x: 0.9, y: 0.45 } },
-    near: { p1: { x: 0.1, y: 0.9 }, p2: { x: 0.9, y: 0.9 } },
-    anchorA: { x: 0.3 },
-    anchorB: { x: 0.7 },
+    far: { p1: { x: at(0.1), y: 0.45 }, p2: { x: at(0.9), y: 0.45 } },
+    near: { p1: { x: at(0.1), y: 0.9 }, p2: { x: at(0.9), y: 0.9 } },
+    anchorA: { x: at(0.3) },
+    anchorB: { x: at(0.7) },
   };
 }
 

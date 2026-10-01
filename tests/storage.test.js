@@ -86,3 +86,11 @@ test('requestPersistence outcomes', async () => {
   assertEqual(await requestPersistence({ persisted: async () => false, persist: async () => false }), 'denied');
   assertEqual(await requestPersistence({ persisted: async () => { throw new Error('x'); }, persist: async () => true }), 'denied');
 });
+
+test('defaultLines can be fitted to the visible part of the frame', () => {
+  const l = defaultLines({ x0: 0.2, x1: 0.8 });
+  for (const [got, want] of [[l.far.p1.x, 0.26], [l.far.p2.x, 0.74], [l.near.p1.x, 0.26], [l.near.p2.x, 0.74], [l.anchorA.x, 0.38], [l.anchorB.x, 0.62]]) {
+    assertTrue(Math.abs(got - want) < 1e-9, `expected ${want}, got ${got}`);
+  }
+  assertEqual([l.far.p1.y, l.near.p1.y], [0.45, 0.9]);
+});

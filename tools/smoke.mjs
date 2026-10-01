@@ -44,6 +44,7 @@ async function targetWs() {
 
 const errors = [];
 let nextUpload = '';
+let mainNavigations = 0;
 let ws;
 let nextId = 1;
 const pending = new Map();
@@ -92,6 +93,8 @@ try {
       msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
     } else if (msg.method === 'Page.javascriptDialogOpening') {
       send('Page.handleJavaScriptDialog', { accept: true });
+    } else if (msg.method === 'Page.frameNavigated' && !msg.params.frame.parentId) {
+      mainNavigations++;
     } else if (msg.method === 'Page.fileChooserOpened') {
       send('DOM.setFileInputFiles', { files: [nextUpload], backendNodeId: msg.params.backendNodeId });
     } else if (msg.method === 'Runtime.exceptionThrown') {
@@ -119,6 +122,8 @@ try {
 
   await click('btn-freeze');
   check('freeze shows Confirm lines', await visible('btn-confirm'));
+  // the far line's left handle must be on screen (10% in from the visible left edge) and draggable sideways
+  await drag(rect.x + rect.w * 0.1, rect.y + rect.h * 0.45, rect.x + rect.w * 0.1 + 20, rect.y + rect.h * 0.45);
   await tap(cx, rect.y + rect.h * 0.6);
   check('tap before confirm is refused', (await evaluate(`document.getElementById('status').textContent`)).includes('Confirm the lines first'));
 
@@ -129,6 +134,8 @@ try {
   let s = await swim();
   check('confirm saves reference image + lines', !!s?.reference?.image?.startsWith('data:image/jpeg') && !!s.currentLines);
   check('line drag moved the near line', s && Math.abs(s.currentLines.near.p1.y - 0.85) < 0.01, JSON.stringify(s?.currentLines?.near));
+  check('default handles are on screen and draggable', s && Math.abs(s.currentLines.far.p1.y - 0.45) < 1e-9
+    && Math.abs(s.currentLines.far.p1.x - 0.1) > 0.01, JSON.stringify(s?.currentLines?.far));
 
   // place blue at 60% height, centre
   await tap(cx, rect.y + rect.h * 0.6);
@@ -159,13 +166,8 @@ try {
   check('measure logs a measurement', (await swim()).measurements.length === 1);
   await click('btn-measure');
 
-  // live, then freeze again in the same session -> locked
+  // go live; gyro: live overlay follows orientation (camera turned 5° left -> overlay shifts right)
   await click('btn-freeze');
-  await click('btn-freeze');
-  check('second freeze in session starts locked', (await visible('btn-lock')) && !(await visible('btn-confirm')));
-  await click('btn-freeze');
-
-  // gyro: live overlay follows orientation (camera turned 5° left -> overlay shifts right)
   check('live badge shows gyro tracking', await waitFor(`document.getElementById('badge').textContent === 'LIVE ≈'`, 3000),
     await evaluate(`document.getElementById('badge').textContent`));
   const pixel = (x, y) => evaluate(`(() => { const c = document.getElementById('overlay'); const d = window.devicePixelRatio || 1;
@@ -181,6 +183,16 @@ try {
   const movedTo = await pixel(bx + shift, by);
   check('gyro shifts the overlay the right way', isBlue(atRest) && !isBlue(movedFrom) && isBlue(movedTo),
     JSON.stringify({ atRest, movedFrom, movedTo }));
+
+  // re-freeze in the same session (phone now turned 5°): lines unlocked for checking, markers still shown
+  await click('btn-freeze');
+  check('re-freeze starts unlocked with markers visible', (await visible('btn-confirm')) && !(await visible('btn-lock'))
+    && isBlue(await pixel(bx, by)));
+  // go live without confirming: the overlay must stay anchored to the pose the lines were aligned at
+  await click('btn-freeze');
+  await sleep(400);
+  check('unconfirmed re-freeze keeps the aligned gyro baseline', isBlue(await pixel(bx + shift, by)),
+    JSON.stringify({ at: await pixel(bx + shift, by), still: await pixel(bx, by) }));
   await send('DeviceOrientation.setDeviceOrientationOverride', { alpha: 0, beta: 90, gamma: 0 });
 
   // reload -> ghost re-alignment
@@ -233,6 +245,16 @@ try {
   s = await swim();
   check('reset clears reference and markers', s.reference === null && s.markers.blue === null && s.measurements.length === 0);
 
+  // --- storage full: the "Not saved" warning must survive later status messages
+  await click('btn-freeze');
+  await evaluate(`Storage.prototype.setItem = function () { throw new DOMException('full', 'QuotaExceededError'); }`);
+  await click('btn-confirm');
+  await sleep(300);
+  check('save failure warning stays visible', await evaluate(`document.getElementById('warn')?.hidden === false
+    && document.getElementById('warn').textContent.includes('Not saved')`), await status());
+  await send('Page.navigate', { url }); // restores the real Storage.prototype.setItem
+  await waitFor(`document.getElementById('video').videoWidth > 0`);
+
   // --- unreadable stored swim is protected
   await evaluate(`localStorage.setItem('fishingMarker.swim.v1', '{broken')`);
   await send('Page.navigate', { url });
@@ -246,13 +268,26 @@ try {
   check('discard closes it and starts a fresh swim', !(await evaluate(`document.getElementById('load-error').open`))
     && (await swim())?.version === 1);
 
+  // --- camera blocked: the permission message must survive tapping Freeze
+  const { identifier } = await send('Page.addScriptToEvaluateOnNewDocument', {
+    source: `navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError'));`,
+  });
+  await send('Page.navigate', { url });
+  check('camera denied shows the permission message', await waitFor(`document.getElementById('status').textContent.includes('permission')`, 5000), await status());
+  await click('btn-freeze');
+  check('permission message survives tapping Freeze', (await status()).includes('permission'), await status());
+  await send('Page.removeScriptToEvaluateOnNewDocument', { identifier });
+
   // --- installable + offline (service worker is skipped on 'localhost', so use [::1])
   const manifest = await send('Page.getAppManifest');
   check('manifest parses without errors', manifest.errors.length === 0 && manifest.data.includes('Fishing Marker'), JSON.stringify(manifest.errors));
   const swUrl = `http://[::1]:${PORT}/`;
+  mainNavigations = 0;
   await send('Page.navigate', { url: swUrl });
-  check('service worker takes control', await waitFor(`navigator.serviceWorker.ready.then(() => true)`, 8000)
-    && (await send('Page.reload'), await waitFor(`!!navigator.serviceWorker.controller`, 8000)));
+  await waitFor(`navigator.serviceWorker.ready.then(() => true)`, 8000);
+  await sleep(1500);
+  check('first visit is not reloaded by the service worker', mainNavigations === 1, `main-frame navigations: ${mainNavigations}`);
+  check('service worker takes control', await waitFor(`!!navigator.serviceWorker.controller`, 8000));
   await send('Network.enable');
   await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
   await send('Page.reload');

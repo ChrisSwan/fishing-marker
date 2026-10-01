@@ -45,3 +45,11 @@ test('dragLines moves a handle, clamps an anchor, shifts a line; input untouched
   assertClose(l.near.p1.y, 0.8); assertClose(l.near.p2.y, 0.8); assertClose(l.near.p1.x, 0.1);
   assertEqual(lines, defaultLines());
 });
+
+test('dragLines clamps to the given visible bounds', () => {
+  const bounds = { x0: 0.2, x1: 0.8, y0: 0, y1: 1 };
+  const h = dragLines(defaultLines(), { type: 'handle', line: 'far', end: 'p1' }, { dx: -0.5, dy: 0 }, bounds);
+  assertClose(h.far.p1.x, 0.2);
+  const a = dragLines(defaultLines(), { type: 'anchor', which: 'anchorB' }, { dx: 0.5, dy: 0 }, bounds);
+  assertClose(a.anchorB.x, 0.8);
+});

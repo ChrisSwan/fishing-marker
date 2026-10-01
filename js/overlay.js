@@ -43,17 +43,19 @@ export function hitTest(scene, sx, sy) {
   return null;
 }
 
-export function dragLines(lines, hit, d) {
+// bounds: the on-screen part of the image, so nothing can be dragged out of sight.
+export function dragLines(lines, hit, d, bounds = { x0: 0, x1: 1, y0: 0, y1: 1 }) {
   const next = structuredClone(lines);
-  const clamp = (v) => Math.min(1, Math.max(0, v));
+  const clampX = (v) => Math.min(bounds.x1, Math.max(bounds.x0, v));
+  const clampY = (v) => Math.min(bounds.y1, Math.max(bounds.y0, v));
   if (hit.type === 'handle') {
     const p = next[hit.line][hit.end];
-    p.x = clamp(p.x + d.dx);
-    p.y = clamp(p.y + d.dy);
+    p.x = clampX(p.x + d.dx);
+    p.y = clampY(p.y + d.dy);
   } else if (hit.type === 'anchor') {
-    next[hit.which].x = clamp(next[hit.which].x + d.dx);
+    next[hit.which].x = clampX(next[hit.which].x + d.dx);
   } else if (hit.type === 'line') {
-    for (const end of ['p1', 'p2']) next[hit.line][end].y = clamp(next[hit.line][end].y + d.dy);
+    for (const end of ['p1', 'p2']) next[hit.line][end].y = clampY(next[hit.line][end].y + d.dy);
   }
   return next;
 }

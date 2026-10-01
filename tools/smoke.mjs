@@ -43,6 +43,7 @@ async function targetWs() {
 }
 
 const errors = [];
+let nextUpload = '';
 let ws;
 let nextId = 1;
 const pending = new Map();
@@ -51,8 +52,8 @@ function send(method, params = {}) {
   ws.send(JSON.stringify({ id, method, params }));
   return new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
 }
-async function evaluate(expression) {
-  const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
+async function evaluate(expression, userGesture = false) {
+  const r = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture });
   if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
   return r.result.value;
 }
@@ -76,7 +77,7 @@ async function drag(x1, y1, x2, y2) {
   }
   await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x2, y: y2, button: 'left', clickCount: 1 });
 }
-const click = (id) => evaluate(`document.getElementById('${id}').click()`);
+const click = (id) => evaluate(`document.getElementById('${id}').click()`, true);
 const swim = () => evaluate(`JSON.parse(localStorage.getItem('fishingMarker.swim.v1'))`);
 const visible = (id) => evaluate(`!document.getElementById('${id}').hidden`);
 
@@ -89,6 +90,10 @@ try {
       const p = pending.get(msg.id);
       pending.delete(msg.id);
       msg.error ? p.reject(new Error(msg.error.message)) : p.resolve(msg.result);
+    } else if (msg.method === 'Page.javascriptDialogOpening') {
+      send('Page.handleJavaScriptDialog', { accept: true });
+    } else if (msg.method === 'Page.fileChooserOpened') {
+      send('DOM.setFileInputFiles', { files: [nextUpload], backendNodeId: msg.params.backendNodeId });
     } else if (msg.method === 'Runtime.exceptionThrown') {
       errors.push(msg.params.exceptionDetails.exception?.description || msg.params.exceptionDetails.text);
     } else if (msg.method === 'Runtime.consoleAPICalled' && msg.params.type === 'error') {
@@ -168,6 +173,59 @@ try {
   await click('btn-confirm');
   s = await swim();
   check('blue marker survives reload', !!s.markers.blue);
+
+  // --- menu: settings
+  const menu = (action) => evaluate(`document.getElementById('btn-menu').click(); document.querySelector('[data-action="${action}"]').click()`, true);
+  const status = () => evaluate(`document.getElementById('status').textContent`);
+  await menu('settings');
+  await evaluate(`(() => { const el = document.getElementById('set-ellipse'); el.value = '0.1'; el.dispatchEvent(new Event('input')); })()`);
+  check('settings slider updates the swim', (await swim()).settings.ellipseWidth === 0.1);
+  await click('settings-close');
+
+  // --- menu: measurement log
+  await menu('log');
+  check('measurement log lists the measurement', (await evaluate(`document.getElementById('log-list').textContent`)).includes('r '));
+  await click('log-close');
+
+  // --- menu: export
+  await menu('export');
+  check('export reports success', await waitFor(`/Swim (shared|saved)/.test(document.getElementById('status').textContent)`, 5000), await status());
+
+  // --- menu: import (bad file, then good file)
+  await send('Page.setInterceptFileChooserDialog', { enabled: true });
+  const junk = join(profile, 'photo.jpg');
+  writeFileSync(junk, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]));
+  const before = JSON.stringify(await swim());
+  nextUpload = junk;
+  await menu('import');
+  check('importing a non-swim file is refused', await waitFor(`document.getElementById('status').textContent.includes("isn't a Fishing Marker swim")`, 5000), await status());
+  check('swim untouched after bad import', JSON.stringify(await swim()) === before);
+
+  const good = JSON.parse(before);
+  good.markers.green = { r: 0.3, s: 0.2, placedAt: '2026-10-01T10:00:00.000Z' };
+  const goodFile = join(profile, 'swim.json');
+  writeFileSync(goodFile, JSON.stringify(good));
+  nextUpload = goodFile;
+  await menu('import');
+  check('importing a swim file replaces the swim', await waitFor(`!!JSON.parse(localStorage.getItem('fishingMarker.swim.v1')).markers.green`, 5000));
+
+  // --- menu: reset
+  await menu('reset');
+  s = await swim();
+  check('reset clears reference and markers', s.reference === null && s.markers.blue === null && s.measurements.length === 0);
+
+  // --- unreadable stored swim is protected
+  await evaluate(`localStorage.setItem('fishingMarker.swim.v1', '{broken')`);
+  await send('Page.navigate', { url });
+  check('unreadable swim opens the protection dialog', await waitFor(`document.getElementById('load-error').open`));
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(200);
+  check('Escape does not dismiss it', await evaluate(`document.getElementById('load-error').open`));
+  check('raw data still stored', (await evaluate(`localStorage.getItem('fishingMarker.swim.v1')`)) === '{broken');
+  await click('load-error-discard');
+  check('discard closes it and starts a fresh swim', !(await evaluate(`document.getElementById('load-error').open`))
+    && (await swim())?.version === 1);
 
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));
 } catch (err) {

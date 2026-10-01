@@ -4,3 +4,4 @@ import './storage.test.js';
 import './swim.test.js';
 import './overlay.test.js';
 import './camera.test.js';
+import './transfer.test.js';

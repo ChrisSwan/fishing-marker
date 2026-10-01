@@ -1,8 +1,11 @@
 // App state and DOM wiring. All maths lives in the pure modules.
 import { VERSION } from './version.js';
 import { coverTransform, screenToImage } from './viewport.js';
-import { openSwimStore, defaultLines } from './storage.js';
-import { confirmLines, placeMarker, deleteMarker, addMeasurement, markerPositions } from './swim.js';
+import { openSwimStore, defaultLines, createSwim } from './storage.js';
+import {
+  confirmLines, placeMarker, deleteMarker, addMeasurement, clearMeasurements, markerPositions, updateSettings,
+} from './swim.js';
+import { exportText, pickTextFile, parseImport, serializeSwim, exportFilename } from './transfer.js';
 import { drawScene, hitTest, dragLines } from './overlay.js';
 import { attachInput } from './input.js';
 import { startCamera, cameraErrorMessage, captureFrame, frameToJpeg, loadImage } from './camera.js';
@@ -301,14 +304,112 @@ $('btn-delete').onclick = () => {
   say(`${colour[0].toUpperCase()}${colour.slice(1)} marker deleted.`);
   render();
 };
-// Replaced in Task 7 (menu).
-$('btn-menu').onclick = () => say(`Fishing Marker ${VERSION} — menu coming in the next build.`);
+$('btn-menu').onclick = () => $('menu').showModal();
+
+function renderLog() {
+  const rows = state.swim.measurements.map((m, i) =>
+    `${String(i + 1).padStart(3)}  ${m.at.slice(11, 19)}  r ${m.r.toFixed(3)}  s ${m.s.toFixed(3)}${m.note ? `  ${m.note}` : ''}`);
+  $('log-list').textContent = rows.length ? rows.join('\n') : 'No measurements yet.';
+}
+$('log-clear').onclick = () => {
+  if (!window.confirm('Clear the measurement log?')) return;
+  commit(clearMeasurements(state.swim));
+  renderLog();
+};
+$('log-close').onclick = () => $('log').close();
+
+function openSettings() {
+  const s = state.swim.settings;
+  $('set-ellipse').value = s.ellipseWidth;
+  $('set-ghost').value = s.ghostOpacity;
+  $('set-fov').value = s.fovDegrees;
+  $('set-fov-val').textContent = s.fovDegrees;
+  $('settings').showModal();
+}
+for (const [id, key] of [['set-ellipse', 'ellipseWidth'], ['set-ghost', 'ghostOpacity'], ['set-fov', 'fovDegrees']]) {
+  $(id).oninput = (e) => {
+    commit(updateSettings(state.swim, { [key]: Number(e.target.value) }));
+    $('set-fov-val').textContent = state.swim.settings.fovDegrees;
+    render();
+  };
+}
+$('settings-close').onclick = () => $('settings').close();
+
+const EXPORT_MESSAGES = {
+  shared: 'Swim shared.',
+  'shared-txt': 'Swim shared (as .txt).',
+  downloaded: 'Swim saved to Downloads.',
+  cancelled: 'Export cancelled.',
+};
+
+async function importSwim() {
+  const text = await pickTextFile();
+  if (text == null) return;
+  const res = parseImport(text);
+  if (!res.ok) { say(res.error, 8000); return; }
+  if (!window.confirm('Replace the current swim with the imported one?')) return;
+  if (state.frozen) unfreeze();
+  commit(res.swim);
+  state.ghostImage = res.swim.reference ? await loadImage(res.swim.reference.image).catch(() => null) : null;
+  state.sessionConfirmed = false;
+  state.newReference = false;
+  state.poseBase = null;
+  say('Swim imported. Freeze and match the lines to the ghost.', 0);
+}
+
+$('menu').onclick = async (e) => {
+  const action = e.target?.dataset?.action;
+  if (!action) return;
+  $('menu').close();
+  if (action === 'new-reference') {
+    if (state.frozen) unfreeze();
+    state.newReference = true;
+    say('Point at the lake and tap Freeze to set a new reference.', 0);
+  } else if (action === 'log') {
+    renderLog();
+    $('log').showModal();
+  } else if (action === 'export') {
+    say(EXPORT_MESSAGES[await exportText(serializeSwim(state.swim), exportFilename())]);
+  } else if (action === 'import') {
+    await importSwim();
+  } else if (action === 'settings') {
+    openSettings();
+  } else if (action === 'reset') {
+    if (!window.confirm('Delete the reference, all markers and the measurement log?')) return;
+    if (state.frozen) unfreeze();
+    commit(createSwim());
+    state.ghostImage = null;
+    state.sessionConfirmed = false;
+    state.newReference = false;
+    state.poseBase = null;
+    say('Swim reset.');
+  } else if (action === 'about') {
+    window.alert(`Fishing Marker ${VERSION}`);
+  }
+  render();
+};
 
 async function init() {
   window.addEventListener('resize', resize);
   resize();
   if (state.swim.reference) state.ghostImage = await loadImage(state.swim.reference.image).catch(() => null);
-  if (store.status === 'error') say(store.error, 0);
+  if (store.blocked) {
+    const dlg = $('load-error');
+    $('load-error-text').textContent = store.error;
+    dlg.addEventListener('cancel', (e) => e.preventDefault());
+    // Without recent user activation Chrome ignores preventDefault on Escape/Back, so reopen instead.
+    dlg.addEventListener('close', () => { if (store.blocked) dlg.showModal(); });
+    $('load-error-export').onclick = () => exportText(store.raw, exportFilename().replace('-swim-', '-unreadable-swim-'));
+    $('load-error-discard').onclick = () => {
+      store.discardRaw();
+      dlg.close();
+      commit(state.swim);
+      say('Started a new swim.');
+    };
+    dlg.showModal();
+  } else if (store.status === 'error') {
+    say(store.error, 0);
+  }
   video.addEventListener('loadedmetadata', render);
   try {
     await startCamera(video);

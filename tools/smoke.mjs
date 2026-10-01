@@ -60,7 +60,7 @@ async function evaluate(expression, userGesture = false) {
 async function waitFor(expression, ms = 8000) {
   const end = Date.now() + ms;
   while (Date.now() < end) {
-    if (await evaluate(expression)) return true;
+    if (await evaluate(expression).catch(() => false)) return true; // page may be mid-navigation
     await sleep(100);
   }
   return false;
@@ -245,6 +245,20 @@ try {
   await click('load-error-discard');
   check('discard closes it and starts a fresh swim', !(await evaluate(`document.getElementById('load-error').open`))
     && (await swim())?.version === 1);
+
+  // --- installable + offline (service worker is skipped on 'localhost', so use [::1])
+  const manifest = await send('Page.getAppManifest');
+  check('manifest parses without errors', manifest.errors.length === 0 && manifest.data.includes('Fishing Marker'), JSON.stringify(manifest.errors));
+  const swUrl = `http://[::1]:${PORT}/`;
+  await send('Page.navigate', { url: swUrl });
+  check('service worker takes control', await waitFor(`navigator.serviceWorker.ready.then(() => true)`, 8000)
+    && (await send('Page.reload'), await waitFor(`!!navigator.serviceWorker.controller`, 8000)));
+  await send('Network.enable');
+  await send('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+  await send('Page.reload');
+  check('app loads offline', await waitFor(`document.getElementById('btn-freeze')?.textContent === 'Freeze' && !!document.querySelector('script[src="js/app.js"]')`, 8000)
+    && await waitFor(`document.getElementById('badge').textContent.startsWith('LIVE')`, 8000));
+  await send('Network.emulateNetworkConditions', { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
 
   check('no JavaScript errors', errors.length === 0, errors.join(' | '));
 } catch (err) {

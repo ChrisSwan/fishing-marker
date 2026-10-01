@@ -1,5 +1,6 @@
 import { runAll } from './runner.js';
 import './all.js';
+import './pwa.node.test.js';
 
 const results = await runAll();
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `\n      ${r.error}`}`);

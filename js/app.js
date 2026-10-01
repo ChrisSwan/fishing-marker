@@ -1,7 +1,7 @@
 // App state and DOM wiring. All maths lives in the pure modules.
 import { VERSION } from './version.js';
 import { coverTransform, screenToImage } from './viewport.js';
-import { openSwimStore, defaultLines, createSwim } from './storage.js';
+import { openSwimStore, defaultLines, createSwim, requestPersistence } from './storage.js';
 import {
   confirmLines, placeMarker, deleteMarker, addMeasurement, clearMeasurements, markerPositions, updateSettings,
 } from './swim.js';
@@ -390,6 +390,31 @@ $('menu').onclick = async (e) => {
   render();
 };
 
+function showBanner(text, onClick) {
+  const b = $('banner');
+  b.textContent = text;
+  b.hidden = false;
+  b.onclick = onClick;
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return;
+  if (['localhost', '127.0.0.1'].includes(location.hostname)) return; // keep dev reloads fresh
+  const reg = await navigator.serviceWorker.register('./sw.js');
+  const offer = (worker) => showBanner('Update available — tap to reload', () => worker.postMessage('skipWaiting'));
+  if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
+  reg.addEventListener('updatefound', () => {
+    const worker = reg.installing;
+    worker?.addEventListener('statechange', () => {
+      if (worker.state === 'installed' && navigator.serviceWorker.controller) offer(worker);
+    });
+  });
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!reloading) { reloading = true; location.reload(); }
+  });
+}
+
 async function init() {
   window.addEventListener('resize', resize);
   resize();
@@ -422,6 +447,10 @@ async function init() {
     say(cameraErrorMessage(err), 0);
   }
   loop();
+  registerServiceWorker().catch(() => {});
+  if ((await requestPersistence(navigator.storage)) === 'denied' && !$('status').textContent) {
+    say('Tip: add this app to your home screen and export regularly — the browser may clear its storage.', 8000);
+  }
 }
 
 init();

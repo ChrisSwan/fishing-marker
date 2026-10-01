@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#0b3d3a">
+  <title>Fishing Marker</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div id="stage">
+    <video id="video" playsinline muted autoplay></video>
+    <canvas id="overlay"></canvas>
+    <div id="status" role="status"></div>
+    <div id="badge"></div>
+    <div id="banner" hidden></div>
+  </div>
+  <nav id="toolbar">
+    <button id="btn-freeze">Freeze</button>
+    <button id="btn-confirm" hidden>Confirm lines</button>
+    <button id="btn-lock" hidden>Unlock lines</button>
+    <button id="btn-ghost" hidden>Ghost</button>
+    <span class="chips">
+      <button class="chip" data-colour="blue" aria-label="Blue marker"></button>
+      <button class="chip" data-colour="green" aria-label="Green marker"></button>
+      <button class="chip" data-colour="red" aria-label="Red marker"></button>
+    </span>
+    <button id="btn-measure">Measure</button>
+    <button id="btn-delete" hidden aria-label="Delete marker">🗑</button>
+    <button id="btn-menu" aria-label="Menu">⋯</button>
+  </nav>
+
+  <dialog id="menu">
+    <button data-action="new-reference">New reference</button>
+    <button data-action="log">Measurement log</button>
+    <button data-action="export">Export swim</button>
+    <button data-action="import">Import swim</button>
+    <button data-action="settings">Settings</button>
+    <button data-action="reset">Reset swim</button>
+    <button data-action="about">About</button>
+    <button data-action="close">Close</button>
+  </dialog>
+
+  <dialog id="log">
+    <h3>Measurement log</h3>
+    <div id="log-list"></div>
+    <button id="log-clear">Clear log</button>
+    <button id="log-close">Close</button>
+  </dialog>
+
+  <dialog id="settings">
+    <h3>Settings</h3>
+    <label>Marker size <input id="set-ellipse" type="range" min="0.02" max="0.15" step="0.005"></label>
+    <label>Ghost opacity <input id="set-ghost" type="range" min="0.1" max="0.9" step="0.05"></label>
+    <label>Camera field of view (<span id="set-fov-val"></span>°) <input id="set-fov" type="range" min="40" max="90" step="1"></label>
+    <button id="settings-close">Close</button>
+  </dialog>
+
+  <dialog id="load-error">
+    <h3>Saved swim can't be read</h3>
+    <p id="load-error-text"></p>
+    <p>Saving is paused so nothing gets overwritten.</p>
+    <button id="load-error-export">Export the saved data</button>
+    <button id="load-error-discard">Discard it and start a new swim</button>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Fishing Marker tests</title>
+<style>body{font:14px system-ui;padding:16px;background:#fff;color:#111}.ok{color:#1a7f37}.fail{color:#cf222e}</style>
+<h1>Fishing Marker tests</h1>
+<pre id="out">Running…</pre>
+<script type="module">
+  import { runAll } from './runner.js';
+  import './all.js';
+  const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const results = await runAll();
+  document.getElementById('out').innerHTML =
+    results.map((r) => `<span class="${r.ok ? 'ok' : 'fail'}">${r.ok ? 'PASS' : 'FAIL'}  ${esc(r.name)}${r.ok ? '' : ' — ' + esc(r.error)}</span>`).join('\n') +
+    `\n\n${results.filter((r) => r.ok).length}/${results.length} passed`;
+</script>

@@ -15,6 +15,8 @@ const $ = (id) => document.getElementById(id);
 const video = $('video');
 const canvas = $('overlay');
 const ctx = canvas.getContext('2d');
+// Open the app with ?debug to show version, lock state, camera size and what each touch grabbed.
+const DEBUG = new URLSearchParams(location.search).has('debug');
 
 function safeLocalStorage() {
   try {
@@ -47,6 +49,7 @@ const state = {
   poseBase: null,
   linesAtFreeze: null,
   cameraError: null,
+  lastTouch: '',            // debug readout only
   gyroSeen: false,
   viewW: 0,
   viewH: 0,
@@ -140,6 +143,14 @@ function updateToolbar() {
   for (const chip of document.querySelectorAll('.chip')) {
     chip.classList.toggle('active', state.tool === 'marker' && chip.dataset.colour === state.colour);
   }
+  $('debug').hidden = !DEBUG;
+  if (DEBUG) {
+    $('debug').textContent = `v${VERSION}  frozen: ${state.frozen ? 'yes' : 'no'}  locked: ${state.linesConfirmed ? 'yes' : 'no'}`
+      + `
+video ${video.videoWidth}x${video.videoHeight}  stage ${Math.round(state.viewW)}x${Math.round(state.viewH)}`
+      + `
+touch: ${state.lastTouch || '—'}`;
+  }
   $('badge').textContent = state.frozen ? 'FROZEN'
     : !state.sessionConfirmed ? 'LIVE — freeze to align'
     : !state.gyroSeen ? 'LIVE (no gyro)'
@@ -230,10 +241,14 @@ function report(result) {
 
 attachInput(canvas, {
   onDown(sx, sy) {
-    if (!state.frozen) return;
+    if (!state.frozen) { state.lastTouch = 'ignored (live view)'; return; }
     const scene = sceneForHit();
     if (!scene) return;
     const hit = hitTest(scene, sx, sy);
+    state.lastTouch = `${!hit ? (state.linesConfirmed ? 'nothing (lines locked)' : 'nothing')
+      : hit.type === 'handle' ? `handle ${hit.line} ${hit.end}`
+      : hit.type === 'anchor' ? `anchor ${hit.which}`
+      : hit.type === 'line' ? `line ${hit.line}` : `marker ${hit.colour}`} @ ${Math.round(sx)},${Math.round(sy)}`;
     if (hit?.type === 'marker') {
       state.selected = hit.colour;
       state.colour = hit.colour;

@@ -1,5 +1,5 @@
 // Cache-first offline support. Bump VERSION together with js/version.js on every release.
-const VERSION = '0.1.1';
+const VERSION = '0.1.2';
 const CACHE = `fishing-marker-${VERSION}`;
 const ASSETS = [
   './',

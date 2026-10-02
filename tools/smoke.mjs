@@ -268,6 +268,17 @@ try {
   check('discard closes it and starts a fresh swim', !(await evaluate(`document.getElementById('load-error').open`))
     && (await swim())?.version === 1);
 
+  // --- ?debug readout: shows version, lock state and what each touch grabbed
+  await send('Page.navigate', { url: `${url}?debug` });
+  await waitFor(`document.getElementById('video').videoWidth > 0`);
+  await click('btn-freeze');
+  await tap(rect.x + rect.w * 0.1, rect.y + rect.h * 0.9);
+  const dbg = await evaluate(`document.getElementById('debug')?.hidden === false ? document.getElementById('debug').textContent : ''`);
+  check('?debug shows version, lock state and the touch target', dbg.includes('v0.1') && dbg.includes('locked: no')
+    && dbg.includes('handle near p1'), dbg);
+  await send('Page.navigate', { url });
+  check('debug readout hidden without ?debug', await waitFor(`document.getElementById('debug')?.hidden === true`, 3000));
+
   // --- camera blocked: the permission message must survive tapping Freeze
   const { identifier } = await send('Page.addScriptToEvaluateOnNewDocument', {
     source: `navigator.mediaDevices.getUserMedia = () => Promise.reject(new DOMException('denied', 'NotAllowedError'));`,

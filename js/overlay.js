@@ -6,41 +6,60 @@ import { COLOURS } from './storage.js';
 export const MARKER_COLOURS = { blue: '#2F7BFF', green: '#2ECC71', red: '#FF3B30' };
 export const BANK_COLOUR = '#00E5FF';
 export const ANCHOR_COLOUR = '#FFD60A';
-export const HANDLE_RADIUS = 24;
-export const LINE_TOLERANCE = 16;
+// Touch targets are finger-sized (~48 CSS px across) even when the drawn shape is smaller.
+export const HANDLE_RADIUS = 36;
+export const LINE_TOLERANCE = 20;
 export const MARKER_PADDING = 12;
+export const MARKER_MIN_HALF = 24;
+const HANDLE_DRAW_RADIUS = 14;
 
 export function markerSize(t, ellipseWidth) {
   const w = ellipseWidth * t.dispW;
   return { w, h: 0.3 * w };
 }
 
+// Priority: markers, then line handles, then the nearest of anchor/line bodies. Within each group the
+// nearest target wins, so a full-height anchor strip can't steal a touch aimed at a handle or a line.
 export function hitTest(scene, sx, sy) {
   const t = scene.transform;
+  const nearest = (cands) => cands.filter((c) => c.d <= 1).sort((a, b) => a.d - b.d)[0]?.hit ?? null;
+
   const { w, h } = markerSize(t, scene.ellipseWidth);
+  const halfW = Math.max(w / 2 + MARKER_PADDING, MARKER_MIN_HALF);
+  const halfH = Math.max(h / 2 + MARKER_PADDING, MARKER_MIN_HALF);
+  const markers = [];
   for (const c of COLOURS) {
     const m = scene.markers[c];
     if (!m) continue;
     const p = imageToScreen(t, m.x, m.y);
-    if (Math.abs(sx - p.x) <= w / 2 + MARKER_PADDING && Math.abs(sy - p.y) <= h / 2 + MARKER_PADDING) return { type: 'marker', colour: c };
+    const dx = Math.abs(sx - p.x) / halfW, dy = Math.abs(sy - p.y) / halfH;
+    markers.push({ d: Math.max(dx, dy), hit: { type: 'marker', colour: c } });
   }
+  const marker = nearest(markers);
+  if (marker) return marker;
   if (scene.linesLocked || !scene.lines) return null;
+
   const lines = scene.lines;
+  const handles = [];
   for (const line of ['far', 'near']) {
     for (const end of ['p1', 'p2']) {
       const p = imageToScreen(t, lines[line][end].x, lines[line][end].y);
-      if (Math.hypot(sx - p.x, sy - p.y) <= HANDLE_RADIUS) return { type: 'handle', line, end };
+      handles.push({ d: Math.hypot(sx - p.x, sy - p.y) / HANDLE_RADIUS, hit: { type: 'handle', line, end } });
     }
   }
+  const handle = nearest(handles);
+  if (handle) return handle;
+
+  const bodies = [];
   for (const which of ['anchorA', 'anchorB']) {
-    if (Math.abs(sx - imageToScreen(t, lines[which].x, 0).x) <= LINE_TOLERANCE) return { type: 'anchor', which };
+    bodies.push({ d: Math.abs(sx - imageToScreen(t, lines[which].x, 0).x) / LINE_TOLERANCE, hit: { type: 'anchor', which } });
   }
   const img = screenToImage(t, sx, sy);
   for (const line of ['far', 'near']) {
     const ly = imageToScreen(t, img.x, yAt(lines[line], img.x)).y;
-    if (Math.abs(sy - ly) <= LINE_TOLERANCE) return { type: 'line', line };
+    bodies.push({ d: Math.abs(sy - ly) / LINE_TOLERANCE, hit: { type: 'line', line } });
   }
-  return null;
+  return nearest(bodies);
 }
 
 // bounds: the on-screen part of the image, so nothing can be dragged out of sight.
@@ -91,7 +110,7 @@ function drawLines(ctx, t, lines, { ghost, handles }) {
     for (const name of ['far', 'near']) {
       for (const end of ['p1', 'p2']) {
         const p = imageToScreen(t, lines[name][end].x, lines[name][end].y);
-        ctx.beginPath(); ctx.arc(p.x, p.y, 10, 0, Math.PI * 2);
+        ctx.beginPath(); ctx.arc(p.x, p.y, HANDLE_DRAW_RADIUS, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(0,229,255,0.35)'; ctx.fill();
         ctx.strokeStyle = BANK_COLOUR; ctx.stroke();
       }

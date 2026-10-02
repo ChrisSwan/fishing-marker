@@ -53,3 +53,20 @@ test('dragLines clamps to the given visible bounds', () => {
   const a = dragLines(defaultLines(), { type: 'anchor', which: 'anchorB' }, { dx: 0.5, dy: 0 }, bounds);
   assertClose(a.anchorB.x, 0.8);
 });
+
+test('a touch just off a near-bank handle grabs the handle, not a nearby anchor', () => {
+  // near p1 is at screen (50, 900); anchor A moved close to it at x = 0.14 -> screen 70
+  const lines = defaultLines();
+  lines.anchorA.x = 0.14;
+  assertEqual(hitTest(scene({ lines, markers: { blue: null, green: null, red: null } }), 78, 905), { type: 'handle', line: 'near', end: 'p1' });
+});
+
+test('where a line crosses an anchor, the nearer one wins', () => {
+  // near line at y = 900, anchor A at x = 150: touch 3px off the line, 5px off the anchor
+  assertEqual(hitTest(scene({ markers: { blue: null, green: null, red: null } }), 155, 903), { type: 'line', line: 'near' });
+});
+
+test('markers have a finger-sized touch target vertically', () => {
+  // marker at (250, 500) is only 15px tall; a touch 22px below its centre should still select it
+  assertEqual(hitTest(scene({ linesLocked: true }), 250, 522), { type: 'marker', colour: 'blue' });
+});
